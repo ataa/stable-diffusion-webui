@@ -3,7 +3,7 @@ transformers
 accelerate
 basicsr
 gfpgan
-gradio
+gradio==3.15.0
 numpy
 Pillow
 realesrgan
