@@ -116,6 +116,7 @@ restricted_opts = {
 }
 
 ui_reorder_categories = [
+    "masking",
     "sampler",
     "dimensions",
     "cfg",
@@ -228,7 +229,7 @@ class State:
         if not parallel_processing_allowed:
             return
 
-        if self.sampling_step - self.current_image_sampling_step >= opts.show_progress_every_n_steps and opts.live_previews_enable:
+        if self.sampling_step - self.current_image_sampling_step >= opts.show_progress_every_n_steps and opts.live_previews_enable and opts.show_progress_every_n_steps != -1:
             self.do_set_current_image()
 
     def do_set_current_image(self):
