@@ -11,6 +11,7 @@ import tempfile
 import time
 import traceback
 from functools import partial, reduce
+import warnings
 
 import gradio as gr
 import gradio.routes
@@ -40,6 +41,8 @@ from modules.sd_samplers import samplers, samplers_for_img2img
 from modules.textual_inversion import textual_inversion
 import modules.hypernetworks.ui
 from modules.generation_parameters_copypaste import image_from_url_text
+
+warnings.filterwarnings("default" if opts.show_warnings else "ignore", category=UserWarning)
 
 # this is a fix for Windows users. Without it, javascript files will be served with text/html content-type and the browser will not show any UI
 mimetypes.init()
@@ -204,9 +207,31 @@ def apply_styles(prompt, prompt_neg, styles):
     return [gr.Textbox.update(value=prompt), gr.Textbox.update(value=prompt_neg), gr.Dropdown.update(value=[])]
 
 
+def process_interrogate(interrogation_function, mode, ii_input_dir, ii_output_dir, *ii_singles):
+    if mode in {0, 1, 3, 4}:
+        return [interrogation_function(ii_singles[mode]), None]
+    elif mode == 2:
+        return [interrogation_function(ii_singles[mode]["image"]), None]
+    elif mode == 5:
+        assert not shared.cmd_opts.hide_ui_dir_config, "Launched with --hide-ui-dir-config, batch img2img disabled"
+        images = shared.listfiles(ii_input_dir)
+        print(f"Will process {len(images)} images.")
+        if ii_output_dir != "":
+            os.makedirs(ii_output_dir, exist_ok=True)
+        else:
+            ii_output_dir = ii_input_dir
+
+        for image in images:
+            img = Image.open(image)
+            filename = os.path.basename(image)
+            left, _ = os.path.splitext(filename)
+            print(interrogation_function(img), file=open(os.path.join(ii_output_dir, left + ".txt"), 'a'))
+
+        return [gr_show(True), None]
+
+
 def interrogate(image):
     prompt = shared.interrogator.interrogate(image.convert("RGB"))
-
     return gr_show(True) if prompt is None else prompt
 
 
@@ -417,17 +442,16 @@ def apply_setting(key, value):
     return value
 
 
-def update_generation_info(args):
-    generation_info, html_info, img_index = args
+def update_generation_info(generation_info, html_info, img_index):
     try:
         generation_info = json.loads(generation_info)
         if img_index < 0 or img_index >= len(generation_info["infotexts"]):
-            return html_info
-        return plaintext_to_html(generation_info["infotexts"][img_index])
+            return html_info, gr.update()
+        return plaintext_to_html(generation_info["infotexts"][img_index]), gr.update()
     except Exception:
         pass
     # if the json parse or anything else fails, just return the old html_info
-    return html_info
+    return html_info, gr.update()
 
 
 def create_refresh_button(refresh_component, refresh_method, refreshed_args, elem_id):
@@ -508,10 +532,9 @@ Requested path was: {f}
                             generation_info_button = gr.Button(visible=False, elem_id=f"{tabname}_generation_info_button")
                             generation_info_button.click(
                                 fn=update_generation_info,
-                                _js="(x, y) => [x, y, selected_gallery_index()]",
-                                inputs=[generation_info, html_info],
-                                outputs=[html_info],
-                                preprocess=False
+                                _js="function(x, y, z){ console.log(x, y, z); return [x, y, selected_gallery_index()] }",
+                                inputs=[generation_info, html_info, html_info],
+                                outputs=[html_info, html_info],
                             )
 
                         save.click(
@@ -526,7 +549,8 @@ Requested path was: {f}
                             outputs=[
                                 download_files,
                                 html_log,
-                            ]
+                            ],
+                            show_progress=False,
                         )
 
                         save_zip.click(
@@ -588,7 +612,7 @@ def create_ui():
         txt2img_prompt, txt2img_prompt_styles, txt2img_negative_prompt, submit, _, _,txt2img_prompt_style_apply, txt2img_save_style, txt2img_paste, token_counter, token_button = create_toprow(is_img2img=False)
 
         dummy_component = gr.Label(visible=False)
-        txt_prompt_img = gr.File(label="", elem_id="txt2img_prompt_image", file_count="single", type="bytes", visible=False)
+        txt_prompt_img = gr.File(label="", elem_id="txt2img_prompt_image", file_count="single", type="binary", visible=False)
 
         with gr.Row().style(equal_height=False):
             with gr.Column(variant='compact', elem_id="txt2img_settings"):
@@ -768,7 +792,7 @@ def create_ui():
     with gr.Blocks(analytics_enabled=False) as img2img_interface:
         img2img_prompt, img2img_prompt_styles, img2img_negative_prompt, submit, img2img_interrogate, img2img_deepbooru, img2img_prompt_style_apply, img2img_save_style, img2img_paste,token_counter, token_button = create_toprow(is_img2img=True)
 
-        img2img_prompt_img = gr.File(label="", elem_id="img2img_prompt_image", file_count="single", type="bytes", visible=False)
+        img2img_prompt_img = gr.File(label="", elem_id="img2img_prompt_image", file_count="single", type="binary", visible=False)
 
         with FormRow().style(equal_height=False):
             with gr.Column(variant='compact', elem_id="img2img_settings"):
@@ -978,19 +1002,33 @@ def create_ui():
                 show_progress=False,
             )
 
+            interrogate_args = dict(
+                _js="get_img2img_tab_index",
+                inputs=[
+                    dummy_component,
+                    img2img_batch_input_dir,
+                    img2img_batch_output_dir,
+                    init_img,
+                    sketch,
+                    init_img_with_mask,
+                    inpaint_color_sketch,
+                    init_img_inpaint,
+                ],
+                outputs=[img2img_prompt, dummy_component],
+                show_progress=False,
+            )
+
             img2img_prompt.submit(**img2img_args)
             submit.click(**img2img_args)
 
             img2img_interrogate.click(
-                fn=interrogate,
-                inputs=[init_img],
-                outputs=[img2img_prompt],
+                fn=lambda *args : process_interrogate(interrogate, *args),
+                **interrogate_args,
             )
 
             img2img_deepbooru.click(
-                fn=interrogate_deepbooru,
-                inputs=[init_img],
-                outputs=[img2img_prompt],
+                fn=lambda *args : process_interrogate(interrogate_deepbooru, *args),
+                **interrogate_args,
             )
 
             prompts = [(txt2img_prompt, txt2img_negative_prompt), (img2img_prompt, img2img_negative_prompt)]
@@ -1768,7 +1806,10 @@ def create_ui():
             if saved_value is None:
                 ui_settings[key] = getattr(obj, field)
             elif condition and not condition(saved_value):
-                print(f'Warning: Bad ui setting value: {key}: {saved_value}; Default value "{getattr(obj, field)}" will be used instead.')
+                pass
+
+                # this warning is generally not useful;
+                # print(f'Warning: Bad ui setting value: {key}: {saved_value}; Default value "{getattr(obj, field)}" will be used instead.')
             else:
                 setattr(obj, field, saved_value)
                 if init_field is not None:
