@@ -1,5 +1,7 @@
 # Stable Diffusion web UI Experimental Fork
-**DO NOT CLONE THIS REPO**
+
+**DO NOT CLONE THIS REPO - THIS IS AN EXPERIMENTAL FORK**
+
 A browser interface based on Gradio library for Stable Diffusion.
 
 ![](screenshot.png)
