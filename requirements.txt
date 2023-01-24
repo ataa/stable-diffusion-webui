@@ -1,7 +1,6 @@
 blendmodes
 accelerate
 basicsr
-fairscale
 fonts
 font-roboto
 gfpgan
