@@ -474,7 +474,13 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
             if k == 'sd_vae':
                 sd_vae.reload_vae_weights()
 
+        from datetime import datetime
+        from datetime import timedelta
+        tm0 = datetime.now()
         res = process_images_inner(p)
+        tm = timedelta.total_seconds(datetime.now() - tm0)
+        print(f"\nGenerated {p.n_iter*p.batch_size} ({p.n_iter} X {p.batch_size} images in {tm} seconds")
+        print(f"Time per image {tm/(p.n_iter*p.batch_size)} seconds")
 
     finally:
         # restore opts to original state
